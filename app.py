@@ -153,7 +153,7 @@ if uploaded_files:
         # Layout: Image and main rating left, details right
         cols = st.columns([1, 2])
         with cols[0]:
-            st.image(image, use_column_width=True)
+            st.image(image, use_container_width=True)
             show_histogram(gray)
         with cols[1]:
             # Friendly rating box
