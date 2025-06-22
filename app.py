@@ -1,7 +1,7 @@
 import streamlit as st
 from PIL import Image
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as pd
 
 # QC thresholds (customize as needed)
 QC_THRESHOLDS = {
@@ -15,24 +15,36 @@ QC_THRESHOLDS = {
 }
 
 LABELS = {
-    "✅ Excellent": "Ideal HDR result, no visible flaws",
-    "☑️ Good": "Minor issue, still professionally acceptable",
-    "⚠️ Fair": "Noticeable issue, may need re-edit",
-    "❌ Poor": "Serious issue, should be rejected or redone"
+    "🌟 Excellent": "Ideal HDR result, no visible flaws.",
+    "👍 Good": "Minor issue, still professionally acceptable.",
+    "⚠️ Fair": "Noticeable issue, may need re-edit.",
+    "❌ Poor": "Serious issue, should be rejected or redone."
+}
+
+RATING_DETAILS = {
+    "10/10 – Excellent": ("🌟 Excellent", "Professional quality. All aspects look great!"),
+    "8/10 – Good": ("👍 Good", "Minor issues, but overall the image is very good."),
+    "6/10 – Fair": ("⚠️ Needs Improvement", "Some noticeable problems, consider re-editing."),
+    "4/10 – Poor": ("❌ Poor", "Multiple issues detected. Please review or redo this HDR image.")
 }
 
 st.set_page_config(page_title="HDR QC Review", layout="wide")
 st.title("📸 HDR Quality Control Review")
 
 st.markdown("""
-Each image is evaluated on six key HDR quality metrics:
-✅ Excellent, ☑️ Good, ⚠️ Fair, ❌ Poor
+Welcome! This app helps you review the quality of your HDR images using clear, visual ratings and feedback.  
+**How it works:**  
+- We check six aspects of your image (highlight, shadow, color, brightness, contrast, clarity)
+- Each is rated as 🌟 Excellent, 👍 Good, ⚠️ Fair, or ❌ Poor
+- The final score combines all aspects and gives you friendly, practical feedback.
+""")
 
-**Final Rating Legend:**
-- 10/10 – Excellent: All metrics are Excellent/Good
-- 8/10 – Good: 1–2 Fair ratings, rest Good or better
-- 6/10 – Fair: 2+ Fair ratings or one Poor
-- 4/10 or less – Poor: 2+ Poor ratings
+st.markdown("""
+**Rating Legend:**  
+- 🌟 **Excellent**: All quality metrics are Excellent/Good  
+- 👍 **Good**: 1–2 Fair ratings, rest Good or better  
+- ⚠️ **Needs Improvement**: 2+ Fair ratings or one Poor  
+- ❌ **Poor**: 2+ Poor ratings  
 """)
 
 uploaded_files = st.file_uploader(
@@ -43,35 +55,31 @@ uploaded_files = st.file_uploader(
 
 def classify_metric(score):
     if score == "Excellent":
-        return "✅ Excellent"
+        return "🌟 Excellent"
     elif score == "Good":
-        return "☑️ Good"
+        return "👍 Good"
     elif score == "Fair":
         return "⚠️ Fair"
     else:
         return "❌ Poor"
 
 def analyze_image_ai(image, thresholds=QC_THRESHOLDS):
-    # Convert to numpy RGB
     np_img = np.array(image)
-    if np_img.ndim == 2:  # grayscale to RGB
+    if np_img.ndim == 2:
         np_img = np.stack([np_img]*3, axis=-1)
-    elif np_img.shape[2] > 3:  # RGBA to RGB
+    elif np_img.shape[2] > 3:
         np_img = np_img[..., :3]
 
     gray = np.dot(np_img[...,:3], [0.2989, 0.5870, 0.1140])
     mean_brightness = np.mean(gray)
     std_contrast = np.std(gray)
 
-    # Highlight detection: pixels close to white
     highlight_mask = np.all(np_img > 240, axis=-1)
     highlight_ratio = np.sum(highlight_mask) / highlight_mask.size
 
-    # Shadow detection: pixels close to black
     shadow_mask = gray < 30
     shadow_ratio = np.sum(shadow_mask) / shadow_mask.size
 
-    # Metrics
     metrics = {
         "Highlight Control": classify_metric(
             "Poor" if highlight_ratio > thresholds['highlight_ratio_poor']
@@ -83,7 +91,7 @@ def analyze_image_ai(image, thresholds=QC_THRESHOLDS):
             else "Excellent" if shadow_ratio < thresholds['shadow_ratio_excellent']
             else "Fair"
         ),
-        "Color Accuracy": classify_metric("Excellent"),  # Placeholder; could use color checker
+        "Color Accuracy": classify_metric("Excellent"),  # Placeholder
         "Brightness Balance": classify_metric(
             "Fair" if mean_brightness < thresholds['mean_brightness_low'] or mean_brightness > thresholds['mean_brightness_high']
             else "Good"
@@ -91,7 +99,7 @@ def analyze_image_ai(image, thresholds=QC_THRESHOLDS):
         "Contrast & Depth": classify_metric(
             "Fair" if std_contrast < thresholds['std_contrast_fair'] else "Excellent"
         ),
-        "Clarity & Sharpness": classify_metric("Good"),  # Placeholder; can add edge/variance metric
+        "Clarity & Sharpness": classify_metric("Good"),  # Placeholder
     }
 
     ratings = list(metrics.values())
@@ -123,12 +131,13 @@ def analyze_image_ai(image, thresholds=QC_THRESHOLDS):
     return metrics, gray
 
 def show_histogram(gray):
-    fig, ax = plt.subplots()
-    ax.hist(gray.ravel(), bins=256, color="#3498db")
-    ax.set_title("Luminance Histogram")
-    ax.set_xlabel("Luminance")
-    ax.set_ylabel("Frequency")
-    st.pyplot(fig)
+    hist, bins = np.histogram(gray.ravel(), bins=32, range=(0,255))
+    df = pd.DataFrame({'Luminance': bins[:-1], 'Pixel Count': hist})
+    st.bar_chart(df.set_index('Luminance'))
+    st.caption(
+        "This bar chart shows how brightness is distributed in the image. "
+        "A good HDR image usually spreads values across the chart, not just clustered left (dark) or right (bright)."
+    )
 
 if uploaded_files:
     for uploaded_file in uploaded_files:
@@ -139,18 +148,25 @@ if uploaded_files:
             st.error(f"Cannot open image: {e}")
             continue
 
-        st.markdown(f"### 🖼️ {uploaded_file.name}")
+        st.markdown(f"---\n### 🖼️ **{uploaded_file.name}**")
+
+        # Layout: Image and main rating left, details right
         cols = st.columns([1, 2])
         with cols[0]:
             st.image(image, use_column_width=True)
             show_histogram(gray)
         with cols[1]:
-            for metric, value in metrics.items():
-                if metric not in ["Final Rating", "Comment"]:
-                    st.markdown(f"**{metric}:** {value}")
-            st.markdown(f"**💬 Comment:** {metrics['Comment']}")
-            st.markdown(f"**🏆 Final Rating:** {metrics['Final Rating']}")
-        st.markdown("---")
+            # Friendly rating box
+            rating_emoji, rating_desc = RATING_DETAILS[metrics["Final Rating"]]
+            st.markdown(f"## {rating_emoji}")
+            st.success(rating_desc)
+            st.info(metrics["Comment"])
+
+            # Expand for metric details
+            with st.expander("See detailed quality scores"):
+                for metric, value in metrics.items():
+                    if metric not in ["Final Rating", "Comment"]:
+                        st.markdown(f"**{metric}:** {value}")
 
 st.sidebar.header("ℹ️ QC Label Guide")
 for label, desc in LABELS.items():
